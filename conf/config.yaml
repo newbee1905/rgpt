@@ -1,0 +1,20 @@
+defaults:
+  - model: gpt
+  - training: default
+  - dataset: fineweb_hellaswag
+  - _self_
+
+# hydra run configurations
+hydra:
+  run:
+    dir: outputs/${hydra.job.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+# wandb configuration
+wandb:
+  project: "rgpt-training" # Replace with your Weights & Biases project name
+  name: null # Let wandb auto-generate from run_tag or default
+
+# project specific configurations
+task:
+  name: "fineweb-training"
+run_tag: "initial-run"

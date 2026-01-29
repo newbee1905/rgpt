@@ -1,0 +1,5 @@
+name: fineweb_hellaswag
+train_batch_size: 16
+val_batch_size: 4
+num_workers: 12
+tokenizer_path: "gpt2"
