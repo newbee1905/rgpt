@@ -73,21 +73,22 @@ All experiment settings are managed in the `conf/` directory. You can create new
 ```yaml
 # conf/model/gpt.yaml
 name: gpt-small
-d_model: 768
-n_heads: 12
-n_layers: 12
+d_model: 512
+n_heads: 8
+n_layers: 8
 n_recur: 1 # n_recur=1 means it's a standard GPT
-...
+cal_halt_loss: false
+detach_recur: false
 ```
 
 **Example: Train a recursive GPT**
 ```yaml
 # conf/model/rgpt.yaml
 name: rgpt-small
-d_model: 768
-n_heads: 12
-n_layers: 6 # Fewer physical layers, but applied multiple times
-n_recur: 4 # Recurrence depth
+d_model: 512
+n_heads: 8
+n_layers: 2
+n_recur: 4
 cal_halt_loss: true
 detach_recur: false
 ...
@@ -198,3 +199,41 @@ You can now train your new model by referencing its config file name.
 # Train the new GRU model
 python main.py model=my_gru
 ```
+
+## Training New Model Configurations (with different normalizations)
+
+This project supports various normalization types which can be configured via Hydra. We have prepared several configurations for both the standard GPT and the recurrent rGPT models, each testing a different normalization type: `f_rmsnorm`, `rmsnorm`, and `elastic`.
+
+To train these specific configurations, you can use the `model` override in `main.py`. 
+
+### Standard GPT Configurations
+
+- **GPT with functional RMSNorm (`f_rmsnorm`)**:
+  ```bash
+  uv run python main.py model=gpt_f_rmsnorm wandb.name=gpt_f_rmsnorm
+  ```
+- **GPT with class-based RMSNorm (`rmsnorm`)**:
+  ```bash
+  uv run python main.py model=gpt_rmsnorm wandb.name=gpt_rmsnorm
+  ```
+- **GPT with Hybrid Elastic Norm (`elastic`)**:
+  ```bash
+  uv run python main.py model=gpt_elastic wandb.name=gpt_elastic
+  ```
+
+### Recurrent GPT (rGPT) Configurations
+
+- **rGPT with functional RMSNorm (`f_rmsnorm`)**:
+  ```bash
+  uv run python main.py model=rgpt_f_rmsnorm wandb.name=rgpt_f_rmsnorm
+  ```
+- **rGPT with class-based RMSNorm (`rmsnorm`)**:
+  ```bash
+  uv run python main.py model=rgpt_rmsnorm wandb.name=rgpt_rmsnorm
+  ```
+- **rGPT with Hybrid Elastic Norm (`elastic`)**:
+  ```bash
+  uv run python main.py model=rgpt_elastic wandb.name=rgpt_elastic
+  ```
+
+These commands will initiate training runs, and `wandb.name` will ensure that each run is distinctly logged in Weights & Biases.

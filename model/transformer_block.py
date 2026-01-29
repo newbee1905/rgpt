@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from omegaconf import DictConfig
 
-from modelnorm import functional_l2_norm, get_norm_fn, functional_rms_norm
+from model.norm import functional_l2_norm, get_norm_fn, functional_rms_norm
 from model.attention import Attention
 from model.feed_forward import FeedForward
 

@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import DictConfig
 
-from mdoel.rope import RotaryEmbedding
+from model.rope import RotaryEmbedding
 from model.norm import QKNorm
 
 
