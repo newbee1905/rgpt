@@ -311,9 +311,9 @@ class DistNorMuon(torch.optim.Optimizer):
 				state["exp_avg_sq"],
 				group["lr"],
 				group["weight_decay"],
-				group["adam_betas"][0],
-				group["adam_betas"][1],
-				group["adam_eps"],
+				group["betas"][0],
+				group["betas"][1],
+				group["eps"],
 				state["step"],
 			)
 
