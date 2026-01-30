@@ -91,6 +91,14 @@ class HybridElasticNorm(nn.Module):
 
 		return x * final_scale
 
+class HyperballNorm(nn.Module):
+	def __init__(self):
+		super().__init__()
+	
+	def forward(self, x):
+		scale = torch.rsqrt(1.0 + x.pow(2).mean(dim=-1, keepdim=True))
+		return x * scale
+
 
 def get_norm_fn(name, d_model, eps):
 	if name == "rmsnorm":
@@ -101,6 +109,8 @@ def get_norm_fn(name, d_model, eps):
 		return L2Norm(d_model, eps)
 	elif name == "elastic":
 		return HybridElasticNorm(d_model, eps=eps)
+	elif name == "hyperball":
+		return HyperballNorm()
 	else:
 		return nn.Identity()
 
