@@ -246,7 +246,8 @@ class Trainer:
 					)
 
 				# Validation
-				if self.global_step > 0 and self.global_step % val_every_steps == 0:
+				is_final_step = (self.global_step == self.total_steps)
+				if (self.global_step > 0 and self.global_step % val_every_steps == 0) or is_final_step:
 					val_loss = self._validate_loss(self.val_loader)
 					if self.is_main_process:
 						metrics_dict["val_loss"] = f"{val_loss:.4f}"
