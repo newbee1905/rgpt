@@ -4,13 +4,15 @@ from torch.optim.lr_scheduler import OneCycleLR
 from torch.amp import autocast, GradScaler
 from tqdm import tqdm
 from pathlib import Path
+import math
+import sys
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from transformers import get_linear_schedule_with_warmup, get_cosine_schedule_with_warmup
 
-from optimizer import NorMuon, DistNorMuon
+from optimizer import Muon, DistMuon
 from logger import UnifiedLogger
 
 
@@ -51,7 +53,8 @@ class Trainer:
 			self.model = model
 
 		self.dtype = getattr(torch, cfg.training.get("dtype", "bfloat16"))
-		self.use_amp = "cuda" in self.device.type
+		# self.use_amp = "cuda" in self.device.type
+		self.use_amp = self.dtype == torch.float16
 		self.scaler = GradScaler(enabled=(self.dtype == torch.float16))
 		self.grad_accum_steps = self.cfg.training.get("grad_accum_steps", 1)
 		self.early_stopping_patience = self.cfg.training.get("early_stopping_patience", 3)
@@ -68,7 +71,7 @@ class Trainer:
 				continue
 
 			if not tie_word_embeddings and "lm_head" in name:
-				adamw_no_decay_params.append(p)
+				adamw_decay_params.append(p)
 				continue
 
 			if "emb" in name:
@@ -91,13 +94,15 @@ class Trainer:
 			{"params": adamw_no_decay_params, "use_muon": False, "weight_decay": 0.0},
 		]
 
-		optimizer_class = DistNorMuon if self.is_ddp else NorMuon
+		optimizer_class = DistMuon if self.is_ddp else Muon
 		self.optimizer = optimizer_class(
 			param_groups,
 			lr=optimizer_cfg.lr,
 			weight_decay=optimizer_cfg.weight_decay,
 			muon_lr_multiplier=muon_lr_multiplier,
 		)
+
+		# self.optimizer = torch.optim.AdamW(self.model.parameters(), weight_decay=optimizer_cfg.weight_decay)
 
 		# Scheduler configuration logic
 		scheduler_cfg = self.cfg.training.scheduler
@@ -123,7 +128,7 @@ class Trainer:
 				anneal_strategy="cos",
 			)
 
-		self.grad_clip = self.cfg.training.get("grad_clip", 1.0)
+		self.grad_clip = self.cfg.training.get("grad_clip", None)
 		self.output_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
 		self.best_model_path = self.output_dir / f"best_{self.cfg.model.get('name', 'model')}.pth"
 
@@ -197,9 +202,20 @@ class Trainer:
 					accum_token_loss += t_loss
 					accum_q_loss += q_loss_val
 
+				self.scaler.unscale_(self.optimizer)
+
+				if self.is_main_process:
+					# After loss.backward() but before optimizer step
+					total_norm = 0
+					for p in self.model.parameters():
+						if p.grad is not None:
+							param_norm = p.grad.data.norm(2)
+							total_norm += param_norm.item() ** 2
+					total_norm = total_norm**0.5
+					print(f"Gradient norm: {total_norm:.4f}")
+
 				# Optimizer step
 				if self.grad_clip is not None:
-					self.scaler.unscale_(self.optimizer)
 					torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
 
 				self.scaler.step(self.optimizer)
@@ -222,7 +238,7 @@ class Trainer:
 					self.logger.log(
 						{
 							"Loss/train_total": accum_total_loss,
-							"Loss/train_token": accum_token_loss,
+							"Loss/train_token": accum_token_loss / self.grad_accum_steps,
 							"Loss/train_q": accum_q_loss,
 							"lr": self.optimizer.param_groups[0]["lr"],
 						},
