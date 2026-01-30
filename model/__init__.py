@@ -1,8 +1,8 @@
-from model.attention import Attention
-from model.feed_forward import FeedForward
-from model.gpt import GPT
-from model.norm import QKNorm
-from model.transformer_block import TransformerBlock
+from .attention import Attention
+from .feed_forward import FeedForward
+from .gpt import GPT
+from .norm import QKNorm
+from .transformer_block import TransformerBlock
 
 __all__ = [
 	"Attention",

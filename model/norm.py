@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 # RMSNorm from gemma
 # https://github.com/google/gemma_pytorch/blob/main/gemma/model.py
 class RMSNorm(nn.Module):
@@ -58,14 +59,13 @@ class HybridElasticNorm(nn.Module):
 
 	Logic:
 	1. Large Vectors (||x|| > sqrt(d)): Clamped rigidly to the surface.
-	   - Prevents gradient explosion.
-	   - Gradient behavior: Projection (Stable).
+		 - Logic: hard_scale < 1.0 (e.g., Target=10, Norm=20 -> scale=0.5).
+		 - Prevents gradient explosion by projecting onto the hypersphere.
 
 	2. Small Vectors (||x|| < sqrt(d)): Boosted Elastically.
-	   - Formula: scale = (Target / Input)^alpha
-	   - Instead of forcing them to the surface (RMSNorm), we gently pull
-		 them closer, maintaining their relative order.
-	   - Gradient behavior: Boosted, but strictly safer than RMSNorm.
+		 - Logic: hard_scale > 1.0 (e.g., Target=10, Norm=5 -> hard_scale=2.0).
+		 - Formula: scale = hard_scale^alpha.
+		 - Maintains relative magnitude relationships while preventing signal decay.
 	"""
 
 	def __init__(self, dim: int, alpha: float = 0.5, eps: float = 1e-6):
@@ -78,22 +78,19 @@ class HybridElasticNorm(nn.Module):
 		self.target_radius = dim**0.5
 
 	def forward(self, x: torch.Tensor):
-		# Calculate the raw magnitude of input vectors
-		norm = x.norm(p=2, dim=-1, keepdim=True)
-		safe_norm = torch.clamp(norm, min=self.eps)
+		sq_norm = torch.sum(x.pow(2), dim=-1, keepdim=True)
+		inv_norm = torch.rsqrt(sq_norm.clamp(min=self.eps))
 
 		# Calculate the 'Hard' Scale (The RMSNorm Equivalent)
-		hard_scale = self.target_radius / safe_norm
-
-		# Calculate the 'Elastic' Scale
-		elastic_scale = hard_scale.pow(self.alpha)
+		hard_scale = self.target_radius * inv_norm
 
 		# The Decision Logic:
 		# If norm > target: Use Hard Scale (Clamp down to target)
 		# If norm < target: Use Elastic Scale (Boost up gently)
-		final_scale = torch.minimum(hard_scale, elastic_scale)
+		final_scale = torch.where(hard_scale < 1.0, hard_scale, hard_scale.pow(self.alpha))
 
 		return x * final_scale
+
 
 def get_norm_fn(name, d_model, eps):
 	if name == "rmsnorm":
@@ -106,6 +103,7 @@ def get_norm_fn(name, d_model, eps):
 		return HybridElasticNorm(d_model, eps=eps)
 	else:
 		return nn.Identity()
+
 
 class QKNorm(nn.Module):
 	def __init__(self, d_head, norm_type, norm_eps):

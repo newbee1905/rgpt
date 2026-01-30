@@ -36,7 +36,10 @@ class GPT(nn.Module):
 		else:
 			self.register_parameter("q_head", None)
 
-	def _init_weights(self, module):
+		for name, module in self.named_modules():
+			self._init_weights(module, name)
+
+	def _init_weights(self, module, name=""):
 		if isinstance(module, nn.Linear):
 			# Special case for Q-head bootstrapping
 			if self.q_head is not None and module is self.q_head:
@@ -45,14 +48,28 @@ class GPT(nn.Module):
 					module.bias.fill_(-5.0)
 				return
 
-			# Standard GPT-2 style std
-			std = 0.02
-			# Apply residual scaling for depth stability if marked as a residual/projection layer
-			if hasattr(module, "RESIDUAL_SCALE_FLAG"):
-				# Factor accounts for two residual additions per layer (attn + mlp)
-				std *= (2 * self.config.n_layers) ** -0.5
+			std = 0.02  # Standard GPT-2 std
+			gain = 1.0
 
-			trunc_normal_init_(module.weight, std=std)
+			use_muon = module.weight.ndim >= 2 and "embs" not in name and "lm_head" not in name
+
+			if use_muon:
+				# Apply residual scaling for depth stability if marked as a residual/projection layer
+				if hasattr(module, "RESIDUAL_SCALE_FLAG"):
+					# Factor accounts for two residual additions per layer (attn + mlp)
+					gain *= (2 * self.config.n_layers) ** -0.5
+
+				# Use higher energy for weights optimized by Muon
+				# Standard 0.02 is too small for Newton-Schulz convergence
+				nn.init.xavier_uniform_(module.weight, gain=gain)
+			else:
+				# Apply residual scaling for depth stability if marked as a residual/projection layer
+				if hasattr(module, "RESIDUAL_SCALE_FLAG"):
+					# Factor accounts for two residual additions per layer (attn + mlp)
+					std *= (2 * self.config.n_layers) ** -0.5
+
+				trunc_normal_init_(module.weight, std=std)
+
 			if module.bias is not None:
 				nn.init.zeros_(module.bias)
 
@@ -64,12 +81,13 @@ class GPT(nn.Module):
 			pass
 
 		# Manually initialize LayerScale parameters if they exist in the module
+		# set the layerscale to 1.0 cause the model is very small
 		if hasattr(module, "attn_layer_scale"):
 			with torch.no_grad():
-				module.attn_layer_scale.fill_(1e-5)
+				module.attn_layer_scale.fill_(0.1)
 		if hasattr(module, "ff_layer_scale"):
 			with torch.no_grad():
-				module.attn_layer_scale.fill_(1e-5)
+				module.ff_layer_scale.fill_(0.1)
 
 	def forward(self, input_ids, labels=None):
 		bsz, seq_len = input_ids.shape

@@ -21,37 +21,44 @@ class Attention(nn.Module):
 		self.v_proj = nn.Linear(self.d_model, self.d_model, bias=False)
 		self.out_proj = nn.Linear(self.d_model, self.d_model, bias=False)
 
-		self.qk_norm = QKNorm(self.d_head, config.norm_type, config.norm_eps) if config.qk_norm else None
+		self.qk_norm = (
+			QKNorm(self.d_head, config.qk_normtype, config.norm_eps) if config.qk_normtype != "none" else None
+		)
 
 		if self.g1_gate:
-			self.gate_proj = nn.Conv1d(self.d_model, self.d_model, kernel_size=1, groups=self.n_heads, bias=False)
+			self.gate_proj = nn.Linear(self.d_head, self.d_head, bias=True)
+			nn.init.constant_(self.gate_proj.bias, 1.0)
 
 		self.rotary_emb = RotaryEmbedding(self.d_head, max_seq_len=config.max_seq_len)
-		self.dropout = nn.Dropout(config.dropout)
+		self.dropout_p = config.dropout
 
 	def forward(self, x):
-		batch_size, seq_len, _ = x.shape
+		bsz, seq_len, _ = x.shape
 
-		q = self.q_proj(x).view(batch_size, seq_len, self.n_heads, self.d_head).transpose(1, 2)
-		k = self.k_proj(x).view(batch_size, seq_len, self.n_heads, self.d_head).transpose(1, 2)
-		v = self.v_proj(x).view(batch_size, seq_len, self.n_heads, self.d_head).transpose(1, 2)
+		q = self.q_proj(x).view(bsz, seq_len, self.n_heads, self.d_head)
+		k = self.k_proj(x).view(bsz, seq_len, self.n_heads, self.d_head)
+		v = self.v_proj(x).view(bsz, seq_len, self.n_heads, self.d_head)
 
 		if self.qk_norm:
 			q, k = self.qk_norm(q, k)
 
+		gate = None
+		if self.g1_gate:
+			gate = torch.sigmoid(self.gate_proj(q))
+			gate = gate.transpose(1, 2)
+
+		q = q.transpose(1, 2)
+		k = k.transpose(1, 2)
+		v = v.transpose(1, 2)
+
 		q, k = self.rotary_emb(q, k)
 
 		attn_output = F.scaled_dot_product_attention(
-			q, k, v, is_causal=True, dropout_p=self.dropout.p if self.training else 0.0
+			q, k, v, is_causal=True, dropout_p=self.dropout_p if self.training else 0.0
 		)
 
 		if self.g1_gate:
-			q_for_gate = q.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model).transpose(1, 2)
-			gate_scores = self.gate_proj(q_for_gate)
-			gate_scores = (
-				gate_scores.transpose(1, 2).view(batch_size, seq_len, self.n_heads, self.d_head).transpose(1, 2)
-			)
-			attn_output = attn_output * torch.sigmoid(gate_scores)
+			attn_output = attn_output * gate
 
-		attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, seq_len, self.d_model)
+		attn_output = attn_output.transpose(1, 2).contiguous().view(bsz, seq_len, self.d_model)
 		return self.out_proj(attn_output)
