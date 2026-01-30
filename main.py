@@ -10,6 +10,9 @@ import os
 from trainer import Trainer
 from dataset import FineWebDataset, HellaswagDataset, fineweb_collate_fn, get_collate_fn
 
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.set_float32_matmul_precision("high")
+
 
 def setup_ddp():
 	"""Initializes the distributed data parallel environment."""

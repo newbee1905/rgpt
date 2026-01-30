@@ -2,7 +2,7 @@ epochs: 10
 grad_accum_steps: 32
 logger: "wandb" # or "wandb"
 compile: true
-dtype: "bfloat16"
+dtype: "float16"
 early_stopping_patience: -1
 val_every_n_steps: 200
 
