@@ -11,7 +11,7 @@ hydra:
 
 # wandb configuration
 wandb:
-  project: "rgpt-training" # Replace with your Weights & Biases project name
+  project: "rgpt" 
   name: null # Let wandb auto-generate from run_tag or default
 
 # project specific configurations
