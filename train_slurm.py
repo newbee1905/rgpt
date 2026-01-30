@@ -47,13 +47,13 @@ nvidia-smi
 
 echo "Debug: MASTER_ADDR=$MASTER_ADDR MASTER_PORT=$MASTER_PORT"
 
-srun uv run -- torchrun \
+uv run torchrun \
 	--nproc_per_node=$GPUS_PER_NODE \
 	--nnodes=$SLURM_NNODES \
 	--rdzv_id=$SLURM_JOB_ID \
 	--rdzv_backend=c10d \
 	--rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
-	main.py model={{model_config}} {{hydra_args_str}}
+	main.py model={model_config} wandb.name={model_config} {hydra_args_str}
 
 echo "SLURM job $SLURM_JOB_ID finished."
 """
