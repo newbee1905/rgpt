@@ -72,7 +72,7 @@ class Trainer:
 				continue
 
 			if "emb" in name:
-				adamw_decay_params.append(p)
+				adamw_no_decay_params.append(p)
 				continue
 
 			if p.ndim >= 2:
@@ -275,6 +275,17 @@ class Trainer:
 			dist.all_reduce(avg_loss, op=dist.ReduceOp.AVG)
 		self.model.train()
 		return avg_loss.item()
+
+	def test(self):
+		if self.is_main_process:
+			print("Testing the model...")
+		test_loss = self._validate_loss(self.test_loader)
+		if self.is_main_process:
+			self.logger.log({"Loss/test": test_loss}, self.global_step)
+			print(f"Test Loss: {test_loss:.4f}")
+		if self.is_ddp:
+			dist.barrier()
+		return test_loss
 
 	def _get_model_for_saving(self):
 		m = self.model.module if self.is_ddp else self.model
