@@ -141,3 +141,23 @@ class GPT(nn.Module):
 				target_q_continues = torch.sigmoid(target_q_val)
 
 		return final_logits, accum_halt_loss, all_step_q, target_q_continues
+
+	def forward_with_attention(self, input_ids):
+		bsz, seq_len = input_ids.shape
+
+		x = self.embs(input_ids)
+		x = self.dropout(x)
+
+		all_attentions = []
+
+		# Assuming n_recur=1 for visualization, which is typical.
+		# The request doesn't specify how to handle recurrence,
+		# so I'll just show the attentions for one pass.
+		for layer in self.layers:
+			x, attn_weights = layer.forward_with_attention(x)
+			all_attentions.append(attn_weights)
+
+		final_h = self.ln_f(x)
+		final_logits = self.lm_head(final_h)
+
+		return final_logits, all_attentions

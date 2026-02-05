@@ -55,3 +55,22 @@ class TransformerBlock(nn.Module):
 		else:
 			x = h + ff_out
 		return x
+
+	def forward_with_attention(self, x):
+		h_norm = self.attn_norm(x)
+		attn_out, attn_weights = self.attn.forward_with_attention(h_norm)
+		attn_out = self.dropout(attn_out)
+
+		if self.use_layer_scale:
+			h = x + attn_out * self.attn_layer_scale
+		else:
+			h = x + attn_out
+
+		x_norm = self.ff_norm(h)
+		ff_out = self.dropout(self.ff(x_norm))
+		if self.use_layer_scale:
+			x = h + ff_out * self.ff_layer_scale
+		else:
+			x = h + ff_out
+
+		return x, attn_weights

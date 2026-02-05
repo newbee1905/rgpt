@@ -62,3 +62,39 @@ class Attention(nn.Module):
 
 		attn_output = attn_output.transpose(1, 2).contiguous().view(bsz, seq_len, self.d_model)
 		return self.out_proj(attn_output)
+
+	def forward_with_attention(self, x):
+		bsz, seq_len, _ = x.shape
+
+		q = self.q_proj(x).view(bsz, seq_len, self.n_heads, self.d_head)
+		k = self.k_proj(x).view(bsz, seq_len, self.n_heads, self.d_head)
+		v = self.v_proj(x).view(bsz, seq_len, self.n_heads, self.d_head)
+
+		if self.qk_norm:
+			q, k = self.qk_norm(q, k)
+
+		gate = None
+		if self.g1_gate:
+			gate = torch.sigmoid(self.gate_proj(q))
+			gate = gate.transpose(1, 2)
+
+		q = q.transpose(1, 2)
+		k = k.transpose(1, 2)
+		v = v.transpose(1, 2)
+
+		q, k = self.rotary_emb(q, k)
+
+		# Manual attention to get weights
+		attn_logits = torch.matmul(q, k.transpose(-2, -1)) / (self.d_head**0.5)
+		mask = torch.triu(torch.ones(seq_len, seq_len, device=q.device, dtype=torch.bool), diagonal=1)
+		attn_logits.masked_fill_(mask[None, None, :, :], float("-inf"))
+		attn_weights = F.softmax(attn_logits, dim=-1)
+		attn_output = torch.matmul(attn_weights, v)
+
+		if self.g1_gate:
+			attn_output = attn_output * gate
+
+		attn_output = attn_output.transpose(1, 2).contiguous().view(bsz, seq_len, self.d_model)
+		attn_output = self.out_proj(attn_output)
+
+		return attn_output, attn_weights
