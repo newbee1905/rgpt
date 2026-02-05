@@ -91,10 +91,47 @@ class HybridElasticNorm(nn.Module):
 
 		return x * final_scale
 
+class ElasticBallNorm(nn.Module):
+	def __init__(self, dim: int, alpha: float = 0.5, eps: float = 1e-6):
+		"""
+		ElasticBallNorm (Universal): Applies a continuous elastic scaling 
+		to all vectors regardless of size.
+
+		Args:
+			dim: Dimension of the input vectors (d_head).
+			alpha: The "Stiffness" of the normalization (0.0 to 1.0).
+				 - 1.0 = Rigid RMSNorm (Forces all vectors to sqrt(d)).
+				 - 0.5 = Geometric Mean (Pulls vectors halfway to sqrt(d) in log-space).
+				 - 0.0 = Identity (No normalization).
+			eps: Epsilon for numerical stability.
+		"""
+		super().__init__()
+		self.alpha = alpha
+		self.eps = eps
+		
+		# Target radius corresponds to the expected norm sqrt(d)
+		self.target_radius = dim ** 0.5
+
+	def forward(self, x: torch.Tensor):
+		norm = x.pow(2).sum(dim=-1, keepdim=True)
+		norm = torch.sqrt(norm + self.eps)
+
+		# This represents the multiplier needed to force x EXACTLY to the target.
+		# (This is equivalent to the scale factor in RMSNorm)
+		ratio = self.target_radius / norm
+
+		# Apply Elasticity
+		# Instead of applying the full ratio,
+		# we raise it to the power of alpha.
+		# - If alpha < 1, we only apply a fraction of the correction.
+		scale = ratio.pow(self.alpha)
+
+		return x * scale
+
 class HyperballNorm(nn.Module):
 	def __init__(self):
 		super().__init__()
-	
+
 	def forward(self, x):
 		scale = torch.rsqrt(1.0 + x.pow(2).mean(dim=-1, keepdim=True))
 		return x * scale
@@ -109,6 +146,8 @@ def get_norm_fn(name, d_model, eps):
 		return L2Norm(d_model, eps)
 	elif name == "elastic":
 		return HybridElasticNorm(d_model, eps=eps)
+	elif name == "elasticball":
+		return ElasticBallNorm(d_model, eps=eps)
 	elif name == "hyperball":
 		return HyperballNorm()
 	else:
