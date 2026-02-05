@@ -1,6 +1,6 @@
 epochs: 10
 grad_accum_steps: 32
-logger: "wandb" # or "wandb"
+logger: "tensorboard" # or "wandb"
 compile: true
 dtype: "float16"
 early_stopping_patience: -1

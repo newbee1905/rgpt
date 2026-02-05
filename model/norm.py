@@ -37,6 +37,9 @@ class RMSNorm(nn.Module):
 def functional_rms_norm(x, eps=1e-5):
 	return F.rms_norm(x, (x.size(-1),))
 
+def functional_hyperball_norm(x):
+	scale = torch.rsqrt(1.0 + x.pow(2).mean(dim=-1, keepdim=True))
+	return x * scale
 
 class L2Norm(nn.Module):
 	def __init__(self, d_model, eps=1e-5):
@@ -128,6 +131,28 @@ class ElasticBallNorm(nn.Module):
 
 		return x * scale
 
+class DualElasticBallNorm(nn.Module):
+	def __init__(self, dim: int, alpha_q: float = 0.5, alpha_k: float = 0.5, eps: float = 1e-6):
+		super().__init__()
+		self.q_norm = ElasticBallNorm(dim, alpha=alpha_q, eps=eps)
+		self.k_norm = ElasticBallNorm(dim, alpha=alpha_k, eps=eps)
+
+	def forward(self, q, k):
+		return self.q_norm(q), self.k_norm(k)
+
+class AsymmetricHyperballNorm(nn.Module):
+    def __init__(self, dim, scale_q=1.0, scale_k=1.1):
+        super().__init__()
+        # These are buffers, not parameters (state_dict saved, but no gradient)
+        self.register_buffer('scale_q', torch.tensor(scale_q))
+        self.register_buffer('scale_k', torch.tensor(scale_k))
+
+    def forward(self, q, k):
+        q_normed = functional_hyperball_norm(q) 
+        k_normed = functional_hyperball_norm(k)
+        
+        return q_normed * self.scale_q, k_normed * self.scale_k
+
 class HyperballNorm(nn.Module):
 	def __init__(self):
 		super().__init__()
@@ -155,17 +180,25 @@ def get_norm_fn(name, d_model, eps):
 
 
 class QKNorm(nn.Module):
-	def __init__(self, d_head, norm_type, norm_eps):
+	def __init__(self, d_head, norm_type, norm_eps, alpha_q: float = 0.5, alpha_k: float = 0.5, scale_q: float = 1.0, scale_k: float = 1.1):
 		super().__init__()
+		self.norm_type = norm_type
 		if norm_type == "f_rmsnorm":
 			self.q_norm_fn = lambda q: functional_rms_norm(q, norm_eps)
 			self.k_norm_fn = lambda k: functional_rms_norm(k, norm_eps)
 		elif norm_type == "f_l2norm":
 			self.q_norm_fn = lambda q: functional_l2_norm(q, norm_eps)
 			self.k_norm_fn = lambda k: functional_l2_norm(k, norm_eps)
+		elif norm_type == "dual_elasticball":
+			self.norm_module = DualElasticBallNorm(d_head, alpha_q=alpha_q, alpha_k=alpha_k, eps=norm_eps)
+		elif norm_type == "asymmetric_hyperball":
+			self.norm_module = AsymmetricHyperballNorm(d_head, scale_q=scale_q, scale_k=scale_k)
 		else:
 			self.q_norm_fn = get_norm_fn(norm_type, d_head, norm_eps)
 			self.k_norm_fn = get_norm_fn(norm_type, d_head, norm_eps)
 
 	def forward(self, q, k):
-		return self.q_norm_fn(q), self.k_norm_fn(k)
+		if self.norm_type in ["dual_elasticball", "asymmetric_hyperball"]:
+			return self.norm_module(q, k)
+		else:
+			return self.q_norm_fn(q), self.k_norm_fn(k)
